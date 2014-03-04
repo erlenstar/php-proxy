@@ -25,10 +25,10 @@
  * THE SOFTWARE.
  */
 class Proxy {
-    
+
     // curl handle
     protected $ch;
-    
+
     // configuration
     protected $config = array();
 
@@ -40,12 +40,12 @@ class Proxy {
         // load the config
         $config = array();
         require "config.php";
-        
+
         // check config
         if (!count($config)) die("Please provide a valid configuration");
-        
+
         $this->config = $config;
-        
+
         // initialize curl
         $this->ch = curl_init();
         @curl_setopt($this->ch, CURLOPT_FOLLOWLOCATION, true);
@@ -56,7 +56,7 @@ class Proxy {
         curl_setopt($this->ch, CURLOPT_HEADER, true);
         curl_setopt($this->ch, CURLOPT_TIMEOUT, $this->config["timeout"]);
     }
-    
+
     /**
      * Forward the current request to this url
      *
@@ -65,22 +65,27 @@ class Proxy {
     public function forward($url = '')
     {
         // build the correct url
+        /*
         if (isset($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] == "on")
         {
             $url = "https://" . $this->config["server"] . ":" . $this->config["https_port"] . "/" . ltrim($url, "/");
-        } 
-        else 
+        }
+        else
         {
             $url = "http://" . $this->config["server"] . ":" . $this->config["http_port"] . "/" . ltrim($url, "/");
         }
-        
+        */
+
+        //	@debug simple use of full url; no ssl for now
+        if (!($url)) die("No proxy url provided");
+
         // set url
         curl_setopt($this->ch, CURLOPT_URL, $url);
-        
+
         // forward request headers
         $headers = $this->get_request_headers();
         $this->set_request_headers($headers);
-        
+
         // forward post
         if ($_SERVER["REQUEST_METHOD"] == "POST")
         {
@@ -96,29 +101,29 @@ class Proxy {
                 fclose($fp);
                 $this->set_post($post);
             }
-            
+
         } elseif ($_SERVER["REQUEST_METHOD"] == "HEAD") {
           curl_setopt($this->ch, CURLOPT_NOBODY, true);
         }
-        
+
         // execute
         $data = curl_exec($this->ch);
         $info = curl_getinfo($this->ch);
-        
+
         // extract response from headers
         $body = $info["size_download"] ? substr($data, $info["header_size"], $info["size_download"]) : "";
-        
+
         // forward response headers
         $headers = substr($data, 0, $info["header_size"]);
         $this->set_response_headers($headers);
-        
+
         // close connection
         curl_close($this->ch);
-        
+
         // output html
         echo $body;
     }
-    
+
     /**
      *  Get the content-type of the request
      */
@@ -132,7 +137,7 @@ class Proxy {
         }
         return null;
     }
-    
+
     /**
      * Get the headers of the current request
      */
@@ -163,7 +168,7 @@ class Proxy {
     {
         // headers to strip
         $strip = array("Content-Length", "Host");
-        
+
         $headers = array();
         foreach ($request as $key => $value)
         {
@@ -172,53 +177,99 @@ class Proxy {
                 $headers[] = "$key: $value";
             }
         }
-        
+
         curl_setopt($this->ch, CURLOPT_HTTPHEADER, $headers);
     }
-    
+
     /**
      * Pass the cURL response headers to the user
      *
      * @param array $response
      */
-    protected function set_response_headers($response)
+    protected function set_response_headers($response, $with_cors = true)
     {
         // headers to strip
         $strip = array("Transfer-Encoding");
-        
+
         // split headers into an array
         $headers = explode("\n", $response);
-        
+
         // process response headers
         foreach ($headers as &$header)
         {
             // skip empty headers
             if (!$header) continue;
-            
+
             // get header key
             $pos = strpos($header, ":");
             $key = substr($header, 0, $pos);
-            
+
             // modify redirects
             if (strtolower($key) == "location")
             {
                 $base_url = $_SERVER["HTTP_HOST"];
                 $base_url .= rtrim(str_replace(basename($_SERVER["SCRIPT_NAME"]), "", $_SERVER["SCRIPT_NAME"]), "/");
-                
+
                 // replace ports and forward url
                 $header = str_replace(":" . $this->config["http_port"], "", $header);
                 $header = str_replace(":" . $this->config["https_port"], "", $header);
                 $header = str_replace($this->config["server"], $base_url, $header);
             }
-            
+
             // set headers
             if (!in_array($key, $strip))
             {
                 header($header, FALSE);
             }
         }
+
+        //	set the cors header
+        if ($with_cors) $this->set_cors_headers();
     }
-    
+
+	/**
+	 *  An example CORS-compliant method.  It will allow any GET, POST, or OPTIONS requests from any
+	 *  origin.
+	 *
+	 *  In a production environment, you probably want to be more restrictive, but this gives you
+	 *  the general idea of what is involved.  For the nitty-gritty low-down, read:
+	 *
+	 *  - https://developer.mozilla.org/en/HTTP_access_control
+	 *  - http://www.w3.org/TR/cors/
+	 *
+	 *	@debug note that this is very insecure, as it allows proxies to and from all domains
+	 */
+	function set_cors_headers() {
+
+		header("Access-Control-Allow-Origin: {$_SERVER['HTTP_ORIGIN']}");
+        header('Access-Control-Allow-Credentials: true');
+        header('Access-Control-Max-Age: 86400');    // cache for 1 day
+	    header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+
+	    return true;
+
+	    // Allow from any origin
+	    /*
+	    if (isset($_SERVER['HTTP_ORIGIN'])) {
+	        header("Access-Control-Allow-Origin: {$_SERVER['HTTP_ORIGIN']}");
+	        header('Access-Control-Allow-Credentials: true');
+	        header('Access-Control-Max-Age: 86400');    // cache for 1 day
+	    }
+
+	    // Access-Control headers are received during OPTIONS requests
+	    if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+
+	        if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD']))
+	            header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+
+	        if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']))
+	            header("Access-Control-Allow-Headers: {$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}");
+
+	        exit(0);
+	    }
+	    */
+	}
+
     /**
      * Set POST values including FILES support
      *
@@ -236,12 +287,12 @@ class Proxy {
                 rename($file["tmp_name"], $name);
                 $post[$key] = "@" . $name;
             }
-        } 
+        }
         else if( is_array( $post ) )
         {
             $post = http_build_query($post);
         }
-        
+
         curl_setopt($this->ch, CURLOPT_POST, 1);
         curl_setopt($this->ch, CURLOPT_POSTFIELDS, $post);
     }

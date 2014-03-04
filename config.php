@@ -3,7 +3,7 @@
 /*
  * The server you want to proxy to
  * Provide without any ports and protocol
- */ 
+ */
 $config['server'] = 'my.server.com';
 
 /*
@@ -15,4 +15,4 @@ $config['https_port'] = 4433;
 /*
  * Timeout in seconds
  */
-$config['timeout'] = 5;
+$config['timeout'] = 15;
